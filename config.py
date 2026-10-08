@@ -41,6 +41,15 @@ class Config:
         self.PING_IMG = getenv("PING_IMG", "https://files.catbox.moe/haagg2.png")
         self.START_IMG = getenv("START_IMG", "https://files.catbox.moe/zvziwk.jpg")
 
+        self.LYRA_API_URL = getenv("LYRA_API_URL", "https://api.shnwaz.dev").rstrip("/")
+        self.LYRA_API_KEY = getenv("LYRA_API_KEY", "37Lyraa5f0")
+
+        # Ensure FFmpeg is in PATH
+        import os
+        ffmpeg_winget = r"C:\Users\SHNWAZ\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.2-full_build\bin"
+        if os.path.isdir(ffmpeg_winget) and ffmpeg_winget not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = ffmpeg_winget + os.pathsep + os.environ.get("PATH", "")
+
     def check(self):
         missing = [
             var

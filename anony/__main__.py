@@ -12,6 +12,9 @@ from anony import (anon, app, config, db, logger,
 from anony.plugins import all_modules
 
 
+from anony.core.server import start_web_server
+
+
 async def idle():
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
@@ -29,11 +32,13 @@ async def idle():
     await stop_event.wait()
 
 async def main():
+    await start_web_server()
     await db.connect()
     await app.boot()
     await userbot.boot()
     await anon.boot()
     await thumb.start()
+
 
     for module in all_modules:
         importlib.import_module(f"anony.plugins.{module}")

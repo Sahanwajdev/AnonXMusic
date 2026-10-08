@@ -15,6 +15,9 @@ from py_yt import Playlist, VideosSearch
 
 from anony import logger
 from anony.helpers import Track, utils
+from config import Config
+
+config = Config()
 
 
 class DummyLogger:
@@ -80,22 +83,51 @@ class YouTube:
         try:
             _search = VideosSearch(query, limit=1, with_live=False)
             results = await _search.next()
-        except Exception:
-            return None
-        if results and results["result"]:
-            data = results["result"][0]
-            return Track(
-                id=data.get("id"),
-                channel_name=data.get("channel", {}).get("name"),
-                duration=data.get("duration"),
-                duration_sec=utils.to_seconds(data.get("duration")),
-                message_id=m_id,
-                title=data.get("title")[:25],
-                thumbnail=data.get("thumbnails", [{}])[-1].get("url").split("?")[0],
-                url=data.get("link"),
-                view_count=data.get("viewCount", {}).get("short"),
-                video=video,
-            )
+            if results and results.get("result"):
+                data = results["result"][0]
+                dur_str = data.get("duration", "00:00")
+                return Track(
+                    id=data.get("id"),
+                    channel_name=data.get("channel", {}).get("name", ""),
+                    duration=dur_str,
+                    duration_sec=utils.to_seconds(dur_str),
+                    message_id=m_id,
+                    title=data.get("title", "")[:25],
+                    thumbnail=data.get("thumbnails", [{}])[-1].get("url", "").split("?")[0],
+                    url=data.get("link", f"https://www.youtube.com/watch?v={data.get('id')}"),
+                    view_count=data.get("viewCount", {}).get("short", ""),
+                    video=video,
+                )
+        except Exception as ex:
+            logger.warning(f"VideosSearch error: {ex}")
+
+        if getattr(config, "LYRA_API_URL", None):
+            try:
+                timeout = aiohttp.ClientTimeout(total=8)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    api_url = f"{config.LYRA_API_URL}/api/v1/search"
+                    async with session.get(api_url, params={"query": query, "limit": 1}) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            results = data.get("results", [])
+                            if results:
+                                res = results[0]
+                                dur_str = str(res.get("duration", "00:00"))
+                                return Track(
+                                    id=res.get("id"),
+                                    channel_name=res.get("channel", ""),
+                                    duration=dur_str,
+                                    duration_sec=utils.to_seconds(dur_str),
+                                    message_id=m_id,
+                                    title=res.get("title", "")[:25],
+                                    thumbnail=res.get("thumbnail", "").split("?")[0],
+                                    url=res.get("url", f"https://www.youtube.com/watch?v={res.get('id')}"),
+                                    view_count=str(res.get("views", "")),
+                                    video=video,
+                                )
+            except Exception as ex:
+                logger.warning(f"Lyra search fallback error: {ex}")
+
         return None
 
     async def playlist(self, limit: int, user: str, url: str, video: bool) -> list[Track | None]:
@@ -122,47 +154,111 @@ class YouTube:
 
     async def download(self, video_id: str, video: bool = False) -> str | None:
         url = self.base + video_id
-        ext = "mp4" if video else "webm"
-        filename = f"downloads/{video_id}.{ext}"
-
-        if Path(filename).exists():
-            return filename
-
         cookie = self.get_cookies()
-        base_opts = {
-            "outtmpl": "downloads/%(id)s.%(ext)s",
-            "quiet": True,
-            "noplaylist": True,
-            "geo_bypass": True,
-            "no_warnings": True,
-            "overwrites": False,
-            "logger": DummyLogger(),
-            "nocheckcertificate": True,
-            "cookiefile": cookie,
-            "remote_components": ["ejs:github"],
-        }
 
         if video:
+            target_file = f"downloads/{video_id}_video.mp4"
+            if Path(target_file).exists() and Path(target_file).stat().st_size > 1024:
+                return target_file
+
             ydl_opts = {
-                **base_opts,
-                "format": "(bestvideo[height<=?720][width<=?1280][ext=mp4])+(bestaudio)",
+                "outtmpl": f"downloads/{video_id}_video.%(ext)s",
+                "quiet": True,
+                "noplaylist": True,
+                "geo_bypass": True,
+                "no_warnings": True,
+                "overwrites": False,
+                "logger": DummyLogger(),
+                "nocheckcertificate": True,
+                "cookiefile": cookie,
+                "remote_components": ["ejs:github"],
+                "format": "(bestvideo[height<=?720][width<=?1280]+bestaudio)/best[height<=?720]/best",
                 "merge_output_format": "mp4",
             }
+
+            def _download_video():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    try:
+                        ydl.download([url])
+                    except Exception as ex:
+                        logger.warning(f"Video download failed: {ex}")
+                        return None
+                if Path(target_file).exists() and Path(target_file).stat().st_size > 1024:
+                    return target_file
+                for f in Path("downloads").glob(f"{video_id}_video.*"):
+                    if f.is_file() and f.stat().st_size > 1024:
+                        return str(f).replace("\\", "/")
+                return None
+
+            return await asyncio.to_thread(_download_video)
+
         else:
+            target_webm = f"downloads/{video_id}_audio.webm"
+            target_mp4 = f"downloads/{video_id}_audio.mp4"
+            target_m4a = f"downloads/{video_id}_audio.m4a"
+
+            for t in [target_webm, target_mp4, target_m4a]:
+                if Path(t).exists() and Path(t).stat().st_size > 1024:
+                    return t
+
             ydl_opts = {
-                **base_opts,
-                "format": "bestaudio[ext=webm][acodec=opus]",
+                "outtmpl": f"downloads/{video_id}_audio.%(ext)s",
+                "quiet": True,
+                "noplaylist": True,
+                "geo_bypass": True,
+                "no_warnings": True,
+                "overwrites": False,
+                "logger": DummyLogger(),
+                "nocheckcertificate": True,
+                "cookiefile": cookie,
+                "remote_components": ["ejs:github"],
+                "format": "bestaudio[ext=webm][acodec=opus]/bestaudio/best",
             }
 
-        def _download():
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                try:
-                    ydl.download([url])
-                except (yt_dlp.utils.DownloadError, yt_dlp.utils.ExtractorError):
-                    return None
-                except Exception as ex:
-                    logger.warning("Download failed: %s", ex)
-                    return None
-            return filename
+            def _download_audio():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    try:
+                        ydl.download([url])
+                    except Exception as ex:
+                        logger.warning(f"Audio yt-dlp download failed: {ex}")
+                        return None
+                for t in [target_webm, target_mp4, target_m4a]:
+                    if Path(t).exists() and Path(t).stat().st_size > 1024:
+                        return t
+                for f in Path("downloads").glob(f"{video_id}_audio.*"):
+                    if f.is_file() and f.stat().st_size > 1024:
+                        return str(f).replace("\\", "/")
+                return None
 
-        return await asyncio.to_thread(_download)
+            res = await asyncio.to_thread(_download_audio)
+            if res:
+                return res
+
+            # Backup fallback via Lyra API
+            if getattr(config, "LYRA_API_URL", None) and getattr(config, "LYRA_API_KEY", None):
+                try:
+                    logger.info("Attempting Lyra API fallback for audio...")
+                    timeout = aiohttp.ClientTimeout(total=20)
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        stream_api = f"{config.LYRA_API_URL}/api/v1/stream"
+                        params = {"id": video_id, "quality": "best", "api_key": config.LYRA_API_KEY}
+                        async with session.get(stream_api, params=params) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                stream_url = data.get("stream_url") or data.get("proxy_stream_url")
+                                if stream_url:
+                                    async with session.get(stream_url) as dl_resp:
+                                        if dl_resp.status == 200:
+                                            with open(target_mp4, "wb") as fw:
+                                                async for chunk in dl_resp.content.iter_chunked(128 * 1024):
+                                                    if chunk:
+                                                        fw.write(chunk)
+                                            if Path(target_mp4).exists() and Path(target_mp4).stat().st_size > 1024:
+                                                logger.info(f"Downloaded via Lyra API fallback: {target_mp4}")
+                                                return target_mp4
+                except Exception as ex:
+                    logger.warning(f"Lyra API fallback failed: {ex}")
+
+            return None
+
+

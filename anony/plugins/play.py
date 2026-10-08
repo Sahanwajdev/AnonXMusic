@@ -116,12 +116,23 @@ async def play_hndlr(
             return
 
     if not file.file_path:
-        fname = f"downloads/{file.id}.{'mp4' if video else 'webm'}"
-        if Path(fname).exists():
-            file.file_path = fname
+        expected_video = f"downloads/{file.id}_video.mp4"
+        expected_audio_webm = f"downloads/{file.id}_audio.webm"
+        expected_audio_mp4 = f"downloads/{file.id}_audio.mp4"
+        expected_audio_m4a = f"downloads/{file.id}_audio.m4a"
+
+        if video and Path(expected_video).exists() and Path(expected_video).stat().st_size > 1024:
+            file.file_path = expected_video
+        elif not video and Path(expected_audio_webm).exists() and Path(expected_audio_webm).stat().st_size > 1024:
+            file.file_path = expected_audio_webm
+        elif not video and Path(expected_audio_mp4).exists() and Path(expected_audio_mp4).stat().st_size > 1024:
+            file.file_path = expected_audio_mp4
+        elif not video and Path(expected_audio_m4a).exists() and Path(expected_audio_m4a).stat().st_size > 1024:
+            file.file_path = expected_audio_m4a
         else:
             await sent.edit_text(m.lang["play_downloading"])
             file.file_path = await yt.download(file.id, video=video)
+
 
     await anon.play_media(chat_id=m.chat.id, message=sent, media=file)
     if not tracks:

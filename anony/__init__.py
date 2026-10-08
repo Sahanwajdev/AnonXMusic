@@ -3,16 +3,22 @@
 # This file is part of AnonXMusic
 
 
+import sys
 import time
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 logging.basicConfig(
     format="[%(asctime)s - %(levelname)s] - %(name)s: %(message)s",
     datefmt="%d-%b-%y %H:%M:%S",
     handlers=[
-        RotatingFileHandler("log.txt", maxBytes=10485760, backupCount=5),
+        RotatingFileHandler("log.txt", maxBytes=10485760, backupCount=5, encoding="utf-8"),
         logging.StreamHandler(),
     ],
     level=logging.INFO,

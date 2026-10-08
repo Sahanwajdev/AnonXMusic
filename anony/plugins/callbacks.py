@@ -112,7 +112,7 @@ async def _controls(_, query: types.CallbackQuery):
 
     try:
         if action in ["skip", "replay", "stop"]:
-            await query.message.reply_text(reply, quote=False)
+            await query.message.reply_text(reply)
             await query.message.delete()
         else:
             mtext = re.sub(

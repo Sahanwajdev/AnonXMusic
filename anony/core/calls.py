@@ -138,6 +138,14 @@ class TgCall(PyTgCalls):
         except RTMPStreamingUnsupported:
             await self.stop(chat_id)
             await message.edit_text(_lang["error_rtmp"])
+        except Exception as ex:
+            logger.error(f"Error in play_media for chat {chat_id}: {ex}")
+            try:
+                await message.edit_text(f"Error playing media: {ex}")
+            except Exception:
+                pass
+            await self.play_next(chat_id)
+
 
 
     async def replay(self, chat_id: int) -> None:
